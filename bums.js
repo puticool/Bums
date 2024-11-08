@@ -26,6 +26,7 @@ class Bums {
             "User-Agent": "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36"
         };        
         this.SECRET_KEY = '7be2a16a82054ee58398c5edb7ac4a5a';
+        this.tokenPath = path.join(__dirname, 'token.json');
     }
 
     log(msg, type = 'info') {
@@ -57,28 +58,6 @@ class Bums {
         }
         readline.cursorTo(process.stdout, 0);
         readline.clearLine(process.stdout, 0);
-    }
-
-    async login(initData, invitationCode) {
-        const url = `${this.baseUrl}/miniapps/api/user/telegram_auth`;
-        const formData = new FormData();
-        formData.append('invitationCode', invitationCode);
-        formData.append('initData', initData);
-
-        try {
-            const response = await axios.post(url, formData, { headers: this.headers });
-            if (response.status === 200 && response.data.code === 0) {
-                return { 
-                    success: true, 
-                    token: response.data.data.token,
-                    data: response.data.data
-                };
-            } else {
-                return { success: false, error: response.data.msg };
-            }
-        } catch (error) {
-            return { success: false, error: error.message };
-        }
     }
 
     async getGameInfo(token) {
@@ -164,7 +143,7 @@ class Bums {
 
         for (let i = 0; i < energyDistributions.length; i++) {
             const amount = energyDistributions[i];
-            this.log(`Collecting energy for the ${i + 1}/10: ${amount} energy`, 'custom');
+            this.log(`Collecting energy for the ${i + 1}/10 time: ${amount} energy`, 'custom');
             
             const result = await this.collectCoins(token, currentCollectSeqNo, amount);
             
@@ -410,11 +389,11 @@ class Bums {
     }
 
     async processSignIn(token) {
-        this.log('Checking attendance...', 'info');
+        this.log('Checking sign-in status...', 'info');
         const signList = await this.getSignLists(token);
         
         if (!signList.success) {
-            this.log(`Cannot fetch attendance list: ${signList.error}`, 'error');
+            this.log(`Cannot fetch sign-in status: ${signList.error}`, 'error');
             return;
         }
 
@@ -429,16 +408,155 @@ class Bums {
         const result = await this.sign(token);
         
         if (result.success) {
-            this.log(`Attendance for day ${availableDay.days} successful | Reward: ${availableDay.normal}`, 'success');
+            this.log(`Sign-in for day ${availableDay.days} successful | Reward: ${availableDay.normal}`, 'success');
         } else {
-            this.log(`Signing failed: ${result.error}`, 'error');
+            this.log(`Failed to sign in: ${result.error}`, 'error');
+        }
+    }
+
+    async getGangLists(token) {
+        const url = `${this.baseUrl}/miniapps/api/gang/gang_lists`;
+        const headers = { 
+            ...this.headers, 
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "multipart/form-data"
+        };
+        
+        const formData = new FormData();
+        formData.append('boostNum', '15');
+        formData.append('powerNum', '35');
+
+        try {
+            const response = await axios.post(url, formData, { headers });
+            if (response.status === 200 && response.data.code === 0) {
+                return { 
+                    success: true,
+                    myGang: response.data.data.myGang,
+                    gangLists: response.data.data.lists
+                };
+            } else {
+                return { success: false, error: response.data.msg };
+            }
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async joinGang(token, gangName = '') {
+        const url = `${this.baseUrl}/miniapps/api/gang/gang_join`;
+        const headers = { 
+            ...this.headers, 
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "multipart/form-data"
+        };
+        
+        const formData = new FormData();
+        formData.append('name', gangName);
+
+        try {
+            const response = await axios.post(url, formData, { headers });
+            if (response.status === 200 && response.data.code === 0) {
+                return { success: true };
+            } else {
+                return { success: false, error: response.data.msg };
+            }
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async processGangJoin(token) {
+        this.log('Checking gang information...', 'info');
+        const gangList = await this.getGangLists(token);
+        
+        if (!gangList.success) {
+            this.log(`Cannot fetch gang information: ${gangList.error}`, 'error');
+            return;
+        }
+
+        if (!gangList.myGang.gangId) {
+            this.log('You have not joined any gang, trying to join Gang...', 'info');
+            const result = await this.joinGang(token);
+            
+            if (result.success) {
+                this.log('You have successfully joined Gang!', 'success');
+            } else {
+                this.log(`Cannot join gang: ${result.error}`, 'error');
+            }
+        } else {
+            this.log(`You are already a member of gang ${gangList.myGang.name}`, 'custom');
+        }
+    }
+
+    saveToken(userId, token) {
+        let tokens = {};
+        if (fs.existsSync(this.tokenPath)) {
+            tokens = JSON.parse(fs.readFileSync(this.tokenPath, 'utf8'));
+        }
+        tokens[userId] = token;
+        fs.writeFileSync(this.tokenPath, JSON.stringify(tokens, null, 2));
+    }
+
+    getToken(userId) {
+        if (fs.existsSync(this.tokenPath)) {
+            const tokens = JSON.parse(fs.readFileSync(this.tokenPath, 'utf8'));
+            return tokens[userId] || null;
+        }
+        return null;
+    }
+
+    isExpired(token) {
+        const [header, payload, sign] = token.split('.');
+        const decodedPayload = Buffer.from(payload, 'base64').toString();
+        
+        try {
+            const parsedPayload = JSON.parse(decodedPayload);
+            const now = Math.floor(DateTime.now().toSeconds());
+            
+            if (parsedPayload.exp) {
+                const expirationDate = DateTime.fromSeconds(parsedPayload.exp).toLocal();
+                this.log(`Token expired at: ${expirationDate.toFormat('yyyy-MM-dd HH:mm:ss')}`, 'custom');
+                
+                const isExpired = now > parsedPayload.exp;
+                this.log(`Has the token expired? ${isExpired ? 'Yes, you need to replace the token' : 'No..keep running'}`, 'custom');
+                
+                return isExpired;
+            } else {
+                this.log(`Token is perpetual and cannot expire`, 'warning');
+                return false;
+            }
+        } catch (error) {
+            this.log(`Error processing token: ${error.message}`, 'error');
+            return true;
+        }
+    }
+
+    async login(initData, invitationCode) {
+        const url = `${this.baseUrl}/miniapps/api/user/telegram_auth`;
+        const formData = new FormData();
+        formData.append('invitationCode', invitationCode);
+        formData.append('initData', initData);
+
+        try {
+            const response = await axios.post(url, formData, { headers: this.headers });
+            if (response.status === 200 && response.data.code === 0) {
+                return { 
+                    success: true, 
+                    token: response.data.data.token,
+                    data: response.data.data
+                };
+            } else {
+                return { success: false, error: response.data.msg };
+            }
+        } catch (error) {
+            return { success: false, error: error.message };
         }
     }
 
     async main() {
         const dataFile = path.join(__dirname, 'data.txt');
         if (!fs.existsSync(dataFile)) {
-            this.log('File data.txt not found!', 'error');
+            this.log('Cannot find data.txt file!', 'error');
             return;
         }
 
@@ -447,9 +565,8 @@ class Bums {
             .split('\n')
             .filter(Boolean);
 
-
         if (data.length === 0) {
-            this.log('File data.txt is empty!', 'error');
+            this.log('Data file is empty!', 'error');
             return;
         }
 
@@ -471,35 +588,47 @@ class Bums {
 
                     console.log(`\n========== Account ${i + 1}/${data.length} | ${firstName.green} ==========`);
                     
-                    this.log('Logging in...', 'info');
-                    const loginResult = await this.login(initData, 'SkDATcHN');
-                    
-                    if (!loginResult.success) {
-                        this.log(`Login failed: ${loginResult.error}`, 'error');
-                        continue;
+                    let token = this.getToken(userId);
+                    let needsNewToken = !token || this.isExpired(token);
+
+                    if (needsNewToken) {
+                        this.log(`Logging in...`, 'info');
+                        const loginResult = await this.login(initData, 'FXVePI68');
+                        
+                        if (!loginResult.success) {
+                            this.log(`Login failed: ${loginResult.error}`, 'error');
+                            continue;
+                        }
+
+                        token = loginResult.token;
+                        this.saveToken(userId, token);
+                        this.log('Login successful!', 'success');
+                    } else {
+                        this.log('Using existing token...', 'info');
                     }
 
-                    this.log('Logged in successfully!', 'success');
-                    const token = loginResult.token;
                     await this.processSignIn(token);
+                    await this.processGangJoin(token);
                     const gameInfo = await this.getGameInfo(token);
                     if (gameInfo.success) {
                         this.log(`Coin: ${gameInfo.coin}`, 'custom');
                         this.log(`Energy: ${gameInfo.energySurplus}`, 'custom');
                         
                         if (parseInt(gameInfo.energySurplus) > 0) {
-                            this.log('Starting to collect energy...', 'info');
+                            this.log(`Starting to collect energy...`, 'info');
                             const collectSeqNo = gameInfo.data.tapInfo.collectInfo.collectSeqNo;
                             await this.processEnergyCollection(token, gameInfo.energySurplus, collectSeqNo);
                         } else {
-                            this.log('Not enough energy to collect', 'warning');
+                            this.log(`Not enough energy to collect`, 'warning');
                         }
                     } else {
                         this.log(`Cannot fetch game information: ${gameInfo.error}`, 'error');
                     }
+                    
                     if(hoinhiemvu) {
                         await this.processTasks(token);
                     }
+                    
                     if(hoinangcap) {
                         await this.processMineUpgrades(token, parseInt(gameInfo.coin));
                     }
