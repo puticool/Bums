@@ -1,4 +1,4 @@
-function printLogo(){
+const printLogo = () => {
     console.log(`
     ██████╗ ██╗   ██╗████████╗██╗ ██████╗ ██████╗  ██████╗ ██╗      
     ██╔══██╗██║   ██║╚══██╔══╝██║██╔════╝██╔═══██╗██╔═══██╗██║      
@@ -9,5 +9,6 @@ function printLogo(){
             `.cyan);
     console.log('[+] Welcome & Enjoy Sir !'.green);
     console.log('[+] 📣 Error? - Update - New 📣  [https://t.me/+mjpRu3KiQTI4YmRl]'.blue);
-}
+};
+
 module.exports = printLogo;
