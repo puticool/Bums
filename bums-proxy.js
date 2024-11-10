@@ -6,49 +6,17 @@ const readline = require('readline');
 const { DateTime } = require('luxon');
 const md5 = require('md5');
 const { HttpsProxyAgent } = require('https-proxy-agent');
-const printLogo = require('./src/logo');
+const headers = require("./src/header");
+const printLogo = require("./src/logo");
+const log = require('./src/logger');
 
 class Bums {
     constructor() {
         this.baseUrl = 'https://api.bums.bot';
-        this.headers = {
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Accept-Language": "en",
-            "Content-Type": "multipart/form-data",
-            "Origin": "https://app.bums.bot",
-            "Referer": "https://app.bums.bot/",
-            "Sec-Ch-Ua": '"Not/A)Brand";v="99", "Google Chrome";v="115", "Chromium";v="115"',
-            "Sec-Ch-Ua-Mobile": "?1",
-            "Sec-Ch-Ua-Platform": '"Android"',
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors", 
-            "Sec-Fetch-Site": "same-site",
-            "User-Agent": "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36"
-        };        
+        this.headers = headers;
         this.SECRET_KEY = '7be2a16a82054ee58398c5edb7ac4a5a';
-        this.tokenPath = path.join(__dirname, 'token.json');
+        this.log = log;
         this.loadProxies();
-    }
-
-    log(msg, type = 'info') {
-        const timestamp = new Date().toLocaleTimeString();
-        switch(type) {
-            case 'success':
-                console.log(`[${timestamp}] [✓] ${msg}`.green);
-                break;
-            case 'custom':
-                console.log(`[${timestamp}] [*] ${msg}`.magenta);
-                break;        
-            case 'error':
-                console.log(`[${timestamp}] [✗] ${msg}`.red);
-                break;
-            case 'warning':
-                console.log(`[${timestamp}] [!] ${msg}`.yellow);
-                break;
-            default:
-                console.log(`[${timestamp}] [ℹ] ${msg}`.blue);
-        }
     }
 
     async countdown(seconds) {
@@ -87,7 +55,7 @@ class Bums {
                 config.httpsAgent = proxyAgent;
                 config.proxy = false;
             }
-            
+
             const response = await axios(config);
             return response;
         } catch (error) {
@@ -103,7 +71,7 @@ class Bums {
                 proxy: false,
                 timeout: 10000
             });
-            
+
             if (response.status === 200) {
                 return response.data.ip;
             } else {
@@ -113,11 +81,36 @@ class Bums {
             throw new Error(`Error checking IP of proxy: ${error.message}`);
         }
     }
+    async login(initData, invitationCode, proxyUrl) {
+        const url = `${this.baseUrl}/miniapps/api/user/telegram_auth`;
+        const formData = new FormData();
+        formData.append('invitationCode', invitationCode);
+        formData.append('initData', initData);
+        try {
+            const response = await this.makeRequest({
+                method: 'POST',
+                url,
+                data: formData,
+                headers: this.headers
+            }, proxyUrl);
+            if (response.status === 200 && response.data.code === 0) {
+                return {
+                    success: true,
+                    token: response.data.data.token,
+                    data: response.data.data
+                };
+            } else {
+                return { success: false, error: response.data.msg };
+            }
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
 
     async getGameInfo(token, proxyUrl) {
         const url = `${this.baseUrl}/miniapps/api/user_game_level/getGameInfo`;
-        const headers = { ...this.headers, "Authorization": `Bearer ${token}` };
-        
+        const headers = { ...this.headers, "Authorization": `Bearer ${token}`, "Content-Type": "application/json" };
+
         try {
             const response = await this.makeRequest({
                 method: 'GET',
@@ -126,7 +119,7 @@ class Bums {
             }, proxyUrl);
 
             if (response.status === 200 && response.data.code === 0) {
-                return { 
+                return {
                     success: true,
                     coin: response.data.data.gameInfo.coin,
                     energySurplus: response.data.data.gameInfo.energySurplus,
@@ -149,7 +142,7 @@ class Bums {
         const parts = 10;
         let remaining = parseInt(totalEnergy);
         const distributions = [];
-        
+
         for (let i = 0; i < parts; i++) {
             const isLast = i === parts - 1;
             if (isLast) {
@@ -161,18 +154,18 @@ class Bums {
                 remaining -= amount;
             }
         }
-        
+
         return distributions;
     }
-    
+
     async collectCoins(token, collectSeqNo, collectAmount, proxyUrl) {
         const url = `${this.baseUrl}/miniapps/api/user_game/collectCoin`;
-        const headers = { 
-            ...this.headers, 
+        const headers = {
+            ...this.headers,
             "Authorization": `Bearer ${token}`,
             "Content-Type": "multipart/form-data"
         };
-        
+
         const hashCode = this.generateHashCode(collectAmount, collectSeqNo);
         const formData = new FormData();
         formData.append('hashCode', hashCode);
@@ -186,7 +179,7 @@ class Bums {
                 data: formData,
                 headers
             }, proxyUrl);
-            
+
             if (response.status === 200 && response.data.code === 0) {
                 return {
                     success: true,
@@ -203,12 +196,12 @@ class Bums {
 
     async getTaskLists(token, proxyUrl) {
         const url = `${this.baseUrl}/miniapps/api/task/lists`;
-        const headers = { 
-            ...this.headers, 
+        const headers = {
+            ...this.headers,
             "Authorization": `Bearer ${token}`,
-            "Content-Type": "application/json" 
+            "Content-Type": "application/json"
         };
-        
+
         try {
             const response = await this.makeRequest({
                 method: 'GET',
@@ -218,9 +211,9 @@ class Bums {
                     _t: Date.now()
                 }
             }, proxyUrl);
-            
+
             if (response.status === 200 && response.data.code === 0) {
-                return { 
+                return {
                     success: true,
                     tasks: response.data.data.lists.filter(task => task.isFinish === 0)
                 };
@@ -234,12 +227,12 @@ class Bums {
 
     async finishTask(token, taskId, proxyUrl) {
         const url = `${this.baseUrl}/miniapps/api/task/finish_task`;
-        const headers = { 
-            ...this.headers, 
+        const headers = {
+            ...this.headers,
             "Authorization": `Bearer ${token}`,
-            "Content-Type": "application/x-www-form-urlencoded" 
+            "Content-Type": "application/x-www-form-urlencoded"
         };
-        
+
         const params = new URLSearchParams();
         params.append('id', taskId.toString());
         params.append('_t', Date.now().toString());
@@ -251,7 +244,7 @@ class Bums {
                 data: params,
                 headers
             }, proxyUrl);
-            
+
             if (response.status === 200 && response.data.code === 0) {
                 return { success: true };
             } else {
@@ -264,21 +257,21 @@ class Bums {
 
     async getMineList(token, proxyUrl) {
         const url = `${this.baseUrl}/miniapps/api/mine/getMineLists`;
-        const headers = { 
-            ...this.headers, 
+        const headers = {
+            ...this.headers,
             "Authorization": `Bearer ${token}`,
             "Content-Type": "application/json"
         };
-        
+
         try {
             const response = await this.makeRequest({
                 method: 'POST',
                 url,
                 headers
             }, proxyUrl);
-            
+
             if (response.status === 200 && response.data.code === 0) {
-                return { 
+                return {
                     success: true,
                     mines: response.data.data.lists
                 };
@@ -292,12 +285,12 @@ class Bums {
 
     async upgradeMine(token, mineId, proxyUrl) {
         const url = `${this.baseUrl}/miniapps/api/mine/upgrade`;
-        const headers = { 
-            ...this.headers, 
+        const headers = {
+            ...this.headers,
             "Authorization": `Bearer ${token}`,
             "Content-Type": "multipart/form-data"
         };
-        
+
         const formData = new FormData();
         formData.append('mineId', mineId.toString());
 
@@ -308,7 +301,7 @@ class Bums {
                 data: formData,
                 headers
             }, proxyUrl);
-            
+
             if (response.status === 200 && response.data.code === 0) {
                 return { success: true };
             } else {
@@ -322,7 +315,7 @@ class Bums {
     async processTasks(token, proxyUrl) {
         this.log('Fetching task list...', 'info');
         const taskList = await this.getTaskLists(token, proxyUrl);
-        
+
         if (!taskList.success) {
             this.log(`Could not fetch task list: ${taskList.error}`, 'error');
             return;
@@ -336,7 +329,7 @@ class Bums {
         for (const task of taskList.tasks) {
             this.log(`Performing task: ${task.name}`, 'info');
             const result = await this.finishTask(token, task.id, proxyUrl);
-            
+
             if (result.success) {
                 this.log(`Successfully completed task ${task.name} | Reward: ${task.rewardParty}`, 'success');
             } else {
@@ -355,9 +348,9 @@ class Bums {
         for (let i = 0; i < energyDistributions.length; i++) {
             const amount = energyDistributions[i];
             this.log(`Collecting energy for the ${i + 1}/10 time: ${amount} energy`, 'custom');
-            
+
             const result = await this.collectCoins(token, currentCollectSeqNo, amount, proxyUrl);
-            
+
             if (result.success) {
                 totalCollected += amount;
                 currentCollectSeqNo = result.newCollectSeqNo;
@@ -379,15 +372,15 @@ class Bums {
         this.log('Fetching card list...', 'info');
         const config = require('./config.json');
         const mineList = await this.getMineList(token, proxyUrl);
-        
+
         if (!mineList.success) {
             this.log(`Could not fetch card list: ${mineList.error}`, 'error');
             return;
         }
 
         let availableMines = mineList.mines
-            .filter(mine => 
-                mine.status === 1 && 
+            .filter(mine =>
+                mine.status === 1 &&
                 parseInt(mine.nextLevelCost) <= Math.min(currentCoin, config.maxUpgradeCost)
             )
             .sort((a, b) => parseInt(b.nextPerHourReward) - parseInt(a.nextPerHourReward));
@@ -404,7 +397,7 @@ class Bums {
 
             this.log(`Upgrading card ID ${mine.mineId} | Cost: ${cost} | Reward/h: ${mine.nextPerHourReward}`, 'info');
             const result = await this.upgradeMine(token, mine.mineId, proxyUrl);
-            
+
             if (result.success) {
                 remainingCoin -= cost;
                 this.log(`Successfully upgraded card ID ${mine.mineId} | Remaining coin: ${remainingCoin}`, 'success');
@@ -429,23 +422,23 @@ class Bums {
 
     async getSignLists(token, proxyUrl) {
         const url = `${this.baseUrl}/miniapps/api/sign/getSignLists`;
-        const headers = { 
-            ...this.headers, 
+        const headers = {
+            ...this.headers,
             "Authorization": `Bearer ${token}`,
-            "Content-Type": "application/json" 
+            "Content-Type": "application/json"
         };
-        
+
         try {
             const response = await this.makeRequest({
                 method: 'GET',
                 url,
                 headers
             }, proxyUrl);
-            
+
             if (response.status === 200 && response.data.code === 0) {
-                return { 
-                    success: true, 
-                    lists: response.data.data.lists 
+                return {
+                    success: true,
+                    lists: response.data.data.lists
                 };
             } else {
                 return { success: false, error: response.data.msg };
@@ -457,12 +450,12 @@ class Bums {
 
     async sign(token, proxyUrl) {
         const url = `${this.baseUrl}/miniapps/api/sign/sign`;
-        const headers = { 
-            ...this.headers, 
+        const headers = {
+            ...this.headers,
             "Authorization": `Bearer ${token}`,
-            "Content-Type": "multipart/form-data" 
+            "Content-Type": "multipart/form-data"
         };
-        
+
         const formData = new FormData();
 
         try {
@@ -472,7 +465,7 @@ class Bums {
                 data: formData,
                 headers
             }, proxyUrl);
-            
+
             if (response.status === 200 && response.data.code === 0) {
                 return { success: true };
             } else {
@@ -486,7 +479,7 @@ class Bums {
     async processSignIn(token, proxyUrl) {
         this.log('Checking sign-in status...', 'info');
         const signList = await this.getSignLists(token, proxyUrl);
-        
+
         if (!signList.success) {
             this.log(`Could not fetch sign-in status: ${signList.error}`, 'error');
             return;
@@ -500,7 +493,7 @@ class Bums {
 
         this.log(`Signing in for day ${availableDay.days}...`, 'info');
         const result = await this.sign(token, proxyUrl);
-        
+
         if (result.success) {
             this.log(`Sign-in for day ${availableDay.days} successful | Reward: ${availableDay.normal}`, 'success');
         } else {
@@ -512,12 +505,12 @@ class Bums {
 
     async getGangLists(token, proxyUrl) {
         const url = `${this.baseUrl}/miniapps/api/gang/gang_lists`;
-        const headers = { 
-            ...this.headers, 
+        const headers = {
+            ...this.headers,
             "Authorization": `Bearer ${token}`,
-            "Content-Type": "multipart/form-data" 
+            "Content-Type": "multipart/form-data"
         };
-        
+
         const formData = new FormData();
         formData.append('boostNum', '15');
         formData.append('powerNum', '35');
@@ -529,12 +522,12 @@ class Bums {
                 data: formData,
                 headers
             }, proxyUrl);
-            
+
             if (response.status === 200 && response.data.code === 0) {
-                return { 
+                return {
                     success: true,
                     myGang: response.data.data.myGang,
-                    gangLists: response.data.data.lists 
+                    gangLists: response.data.data.lists
                 };
             } else {
                 return { success: false, error: response.data.msg };
@@ -544,14 +537,14 @@ class Bums {
         }
     }
 
-    async joinGang(token, gangName = '', proxyUrl) {
+    async joinGang(token, gangName = 'cryptohomea', proxyUrl) {
         const url = `${this.baseUrl}/miniapps/api/gang/gang_join`;
-        const headers = { 
-            ...this.headers, 
+        const headers = {
+            ...this.headers,
             "Authorization": `Bearer ${token}`,
-            "Content-Type": "multipart/form-data" 
+            "Content-Type": "multipart/form-data"
         };
-        
+
         const formData = new FormData();
         formData.append('name', gangName);
 
@@ -562,7 +555,7 @@ class Bums {
                 data: formData,
                 headers
             }, proxyUrl);
-            
+
             if (response.status === 200 && response.data.code === 0) {
                 return { success: true };
             } else {
@@ -576,7 +569,7 @@ class Bums {
     async processGangJoin(token, proxyUrl) {
         this.log('Checking gang information...', 'info');
         const gangList = await this.getGangLists(token, proxyUrl);
-        
+
         if (!gangList.success) {
             this.log(`Could not fetch gang information: ${gangList.error}`, 'error');
             return;
@@ -585,7 +578,7 @@ class Bums {
         if (!gangList.myGang.gangId) {
             this.log('You have not joined any gang, trying to join Gang...', 'info');
             const result = await this.joinGang(token, 'dancayairdrop', proxyUrl);
-            
+
             if (result.success) {
                 this.log('You have successfully joined Gang!', 'success');
             } else {
@@ -598,76 +591,6 @@ class Bums {
         await this.countdown(5);
     }
 
-    async login(initData, invitationCode, proxyUrl) {
-        const url = `${this.baseUrl}/miniapps/api/user/telegram_auth`;
-        const formData = new FormData();
-        formData.append('invitationCode', invitationCode);
-        formData.append('initData', initData);
-
-        try {
-            const response = await this.makeRequest({
-                method: 'POST',
-                url,
-                data: formData,
-                headers: this.headers
-            }, proxyUrl);
-
-            if (response.status === 200 && response.data.code === 0) {
-                return { 
-                    success: true, 
-                    token: response.data.data.token,
-                    data: response.data.data
-                };
-            } else {
-                return { success: false, error: response.data.msg };
-            }
-        } catch (error) {
-            return { success: false, error: error.message };
-        }
-    }
-   
-    saveToken(userId, token) {
-        let tokens = {};
-        if (fs.existsSync(this.tokenPath)) {
-            tokens = JSON.parse(fs.readFileSync(this.tokenPath, 'utf8'));
-        }
-        tokens[userId] = token;
-        fs.writeFileSync(this.tokenPath, JSON.stringify(tokens, null, 2));
-    }
-
-    getToken(userId) {
-        if (fs.existsSync(this.tokenPath)) {
-            const tokens = JSON.parse(fs.readFileSync(this.tokenPath, 'utf8'));
-            return tokens[userId] || null;
-        }
-        return null;
-    }
-
-    isExpired(token) {
-        const [header, payload, sign] = token.split('.');
-        const decodedPayload = Buffer.from(payload, 'base64').toString();
-        
-        try {
-            const parsedPayload = JSON.parse(decodedPayload);
-            const now = Math.floor(DateTime.now().toSeconds());
-            
-            if (parsedPayload.exp) {
-                const expirationDate = DateTime.fromSeconds(parsedPayload.exp).toLocal();
-                this.log(`Token expired at: ${expirationDate.toFormat('yyyy-MM-dd HH:mm:ss')}`, 'custom');
-                
-                const isExpired = now > parsedPayload.exp;
-                this.log(`Has the token expired? ${isExpired ? 'Yes, you need to replace the token' : 'No..keep running'}`, 'custom');
-                
-                return isExpired;
-            } else {
-                this.log(`Token is perpetual and cannot determine expiration`, 'warning');
-                return false;
-            }
-        } catch (error) {
-            this.log(`Error processing token: ${error.message}`, 'error');
-            return true;
-        }
-    }
 
     async main() {
         const dataFile = path.join(__dirname, 'data.txt');
@@ -687,7 +610,7 @@ class Bums {
         }
 
         printLogo();
-        
+
         const nhiemvu = await this.askQuestion('Do you want to complete tasks? (y/n): ');
         const hoinhiemvu = nhiemvu.toLowerCase() === 'y';
 
@@ -715,33 +638,25 @@ class Bums {
                     const firstName = userData.first_name;
 
                     console.log(`\n========== Account ${i + 1}/${data.length} | ${firstName.green} | ip: ${proxyIP} ==========`);
-                    
-                    let token = this.getToken(userId);
-                    let needsNewToken = !token || this.isExpired(token);
 
-                    if (needsNewToken) {
-                        this.log(`Logging in...`, 'info');
-                        const loginResult = await this.login(initData, 'FXVePI68', currentProxy);
-                        
-                        if (!loginResult.success) {
-                            this.log(`Login failed: ${loginResult.error}`, 'error');
-                            continue;
-                        }
 
-                        token = loginResult.token;
-                        this.saveToken(userId, token);
-                        this.log('Login successful!', 'success');
-                    } else {
-                        this.log('Using existing token...', 'info');
+                    this.log(`Logging in...`, 'info');
+                    const loginResult = await this.login(initData, 'FXVePI68', currentProxy);
+
+                    if (!loginResult.success) {
+                        this.log(`Login failed: ${loginResult.error}`, 'error');
+                        continue;
+
                     }
-
+                    this.log('Login success!', 'success');
+                    const token = loginResult.token;
                     await this.processSignIn(token, currentProxy);
                     await this.processGangJoin(token, currentProxy);
                     const gameInfo = await this.getGameInfo(token, currentProxy);
                     if (gameInfo.success) {
                         this.log(`Coin: ${gameInfo.coin}`, 'custom');
                         this.log(`Energy: ${gameInfo.energySurplus}`, 'custom');
-                        
+
                         if (parseInt(gameInfo.energySurplus) > 0) {
                             this.log(`Starting to collect energy...`, 'info');
                             const collectSeqNo = gameInfo.data.tapInfo.collectInfo.collectSeqNo;
