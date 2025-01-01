@@ -53,7 +53,11 @@ class Bums {
 
     async getGameInfo(token) {
         const url = `${this.baseUrl}/miniapps/api/user_game_level/getGameInfo`;
-        const headers = { ...this.headers, "Authorization": `Bearer ${token}`, "Content-Type": "application/json" };
+        const headers = {
+            ...this.headers,
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+        };
 
         try {
             const response = await axios.get(url, { headers });
@@ -82,7 +86,7 @@ class Bums {
             }
         } catch (error) {
             const errorMessage = error.response?.data?.msg || error.message;
-            return { success: false, error: error.message };
+            return { success: false, error: error.Message };
         }
     }
 
@@ -198,7 +202,7 @@ class Bums {
         }
     }
 
-    async finishTask(token, taskId) {
+    async finishTask(token, taskId, taskInfo) {
         const url = `${this.baseUrl}/miniapps/api/task/finish_task`;
         const headers = {
             ...this.headers,
@@ -206,9 +210,39 @@ class Bums {
             "Content-Type": "application/x-www-form-urlencoded"
         };
 
+        const getEpisodeNumber = (name) => {
+            const match = name.match(/Episode (\d+)/);
+            return match ? parseInt(match[1]) : null;
+        };
+    
+        const episodeCodes = {
+            0: '42858', 1: '95065', 2: '88125', 3: '51264', 4: '13527',
+            5: '33270', 6: '57492', 7: '63990', 8: '19988', 9: '26483',
+            10: '36624', 11: '30436', 12: '71500', 13: '48516', 14: '92317',
+            15: '68948', 16: '98109', 17: '35264', 18: '86100', 19: '86100',
+            20: '83273', 21: '74737', 22: '18948', 23: '16086', 24: '13458',
+            25: '13458', 26: '91467', 27: '71728', 28: '97028', 29: '97028',
+            30: '89349', 31: '31114', 32: '31114', 33: '37422', 34: '52860',
+            35: '10300', 36: '35583', 37: '35194', 38: '26488', 39: '85133',
+            40: '13116', 41: '28932', 42: '50662', 43: '83921', 44: '35176',
+            45: '24345', 46: '95662'
+        };
+
         const params = new URLSearchParams();
         params.append('id', taskId.toString());
         params.append('_t', Date.now().toString());
+
+        if (taskInfo &&
+            taskInfo.classifyName === 'YouTube' &&
+            taskInfo.name.includes('Find hidden code')) {
+            
+            const episodeNum = getEpisodeNumber(taskInfo.name);
+            if (episodeNum !== null && episodeCodes[episodeNum]) {
+                params.append('pwd', episodeCodes[episodeNum]);
+                this.log(`Sending code for Episode ${episodeNum}: ${episodeCodes[episodeNum]}`, 'info');
+            }
+        }
+
 
         try {
             const response = await axios.post(url, params, { headers });
@@ -238,12 +272,12 @@ class Bums {
 
         for (const task of taskList.tasks) {
             this.log(`Performing task: ${task.name}`, 'info');
-            const result = await this.finishTask(token, task.id);
+            const result = await this.finishTask(token, task.id, task);
 
             if (result.success) {
                 this.log(`Successfully completed task ${task.name} | Reward: ${task.rewardParty}`, 'success');
             } else {
-                this.log(`Failed to complete task ${task.name}: not enough conditions or needs to be done manually`, 'error');
+                this.log(`Failed to complete task ${task.name}: ${result.error}`, 'error');
             }
 
             await this.countdown(5);
