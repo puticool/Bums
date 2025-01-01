@@ -9,6 +9,8 @@
 
 ✔️ Auto upgrade
 
+✔️ Multi-threading support
+
 # 🛠️ Instructions:
 
 ## REQUIREMENTS: NODEJS MUST BE INSTALLED
@@ -50,3 +52,7 @@ noproxy:
 proxy:
 
 `node bums-proxy.js`
+
+multi-threading + proxy:
+
+`node bums-thread.js`
